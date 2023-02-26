@@ -54,7 +54,7 @@ CREATE TABLE tbl_counter_agg1 (
   day UInt8,
   hour UInt8,  
   result_time DateTime,
-  currrent_count Int32,
+  count Int32,
   count_state AggregateFunction(count, Int32),
   counter1_state AggregateFunction(argMax, DateTime, Float32),
   counter2_state AggregateFunction(argMax, DateTime, Float32)
@@ -73,12 +73,30 @@ SELECT device,
   toDayOfMonth(time) as day,
   toHour(time) as hour,
   toStartOfHour(time) as result_time,
-  count(device) as currrent_count,
+  count(device) as count,
   countState(device) as count_state,
   argMaxState(insert_time, counter1) as counter1_state,
   argMaxState(insert_time, counter2) as counter2_state
 FROM tbl_counter
 GROUP BY device, time;
+
+-- MV1.1
+CREATE MATERIALIZED VIEW mv_counter_agg2  ENGINE = AggregatingMergeTree() ORDER BY (device, time)
+AS 
+SELECT device,
+  time,
+  toYear(time) as year,
+  toMonth(time) as month,
+  toDayOfMonth(time) as day,
+  toHour(time) as hour,
+  toStartOfHour(time) as result_time,
+  count(device) as count,
+  countState(device) as count_state,
+  argMaxState(insert_time, counter1) as counter1_state,
+  argMaxState(insert_time, counter2) as counter2_state
+FROM tbl_counter
+GROUP BY device, time;
+
 
 select * from tbl_counter_agg1
 
