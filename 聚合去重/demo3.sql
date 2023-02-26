@@ -31,25 +31,56 @@ insert into tbl_counter(device, time, counter1, counter2) values
 (1, '2023/02/03 20:10:00', 100, 100),
 (2, '2023/02/03 20:10:00', 100, 100);
 
+-- 表1 去重
+CREATE TABLE tbl_counter_agg1 (
+  device Int32,
+  time DateTime,
+  year UInt16,
+  month UInt8,
+  day UInt8,
+  hour UInt8,  
+  result_time DateTime,
+  count Int32,
+  count_state AggregateFunction(count, Int32),
+  counter1_state AggregateFunction(argMax, Float32, DateTime),
+  last_counter1 Float32,
+  counter2_state AggregateFunction(argMax, Float32, DateTime),
+  last_counter2 Float32
+)
+ENGINE = AggregatingMergeTree() 
+ORDER BY (device, time)
+
 -- MV1 去重
-CREATE MATERIALIZED VIEW mv_counter_agg1 ENGINE = AggregatingMergeTree()
- ORDER BY (device, time)
+CREATE MATERIALIZED VIEW mv_counter_agg1 TO tbl_counter_agg1
 AS 
-SELECT device,
-  time,
-  toYear(time) as year,
-  toMonth(time) as month,
-  toDayOfMonth(time) as day,
-  toHour(time) as hour,
-  toStartOfHour(time) as result_time,
-  countState(device) as count_state,
-  argMaxState(counter1, insert_time) as counter1_state,
-  argMaxState(counter2, insert_time) as counter2_state
-FROM tbl_counter
+SELECT source.device,
+  source.time,
+  toYear(source.time) as year,
+  toMonth(source.time) as month,
+  toDayOfMonth(source.time) as day,
+  toHour(source.time) as hour,
+  toStartOfHour(source.time) as result_time,
+  countState(source.device) as count_state,
+  argMaxState(source.counter1, source.insert_time) as counter1_state,
+  max(dest.counter1) as last_counter1,
+  argMaxState(source.counter2, source.insert_time) as counter2_state,
+  max(dest.counter2) as last_counter2
+FROM tbl_counter source LEFT JOIN (
+  SELECT device,
+    time,
+    argMaxMerge(counter1_state) as counter1,
+    argMaxMerge(counter2_state) as counter2
+  FROM tbl_counter_agg1
+  GROUP BY device, time, year, month, day, hour
+) dest
+ON source.device = dest.device
+  AND source.time = dest.time
 GROUP BY device, time;
 
-SELECT * FROM mv_counter_agg1 ORDER BY device, time
 
+SELECT * FROM tbl_counter_agg1 ORDER BY device, time
+
+-- 查询结果
 SELECT device,
   time,
   year,
@@ -58,6 +89,9 @@ SELECT device,
   hour,
   countMerge(count_state) as total_count,
   argMaxMerge(counter1_state) as count1,
-  argMaxMerge(counter2_state) as count2
-FROM mv_counter_agg1
+  argMaxMerge(counter2_state) as count2,
+  max(last_counter1) as last_counter1,
+  max(last_counter2) as last_counter2
+FROM tbl_counter_agg1
 GROUP BY device, time, year, month, day, hour
+ORDER BY device, time
